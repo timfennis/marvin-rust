@@ -1,5 +1,7 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
+
+pub mod client;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
@@ -23,7 +25,10 @@ pub struct TelegramResult {
     pub update_id: i64,
 }
 
-async fn send_telegram_request(token: &str, request: &TelegramRequest) -> Result<String, reqwest::Error> {
+async fn send_telegram_request(
+    token: &str,
+    request: &TelegramRequest,
+) -> Result<String, reqwest::Error> {
     let (method, body) = match request {
         TelegramRequest::Me => ("getMe", None),
         TelegramRequest::Updates {
@@ -56,7 +61,7 @@ pub enum TelegramError {
     JsonError { msg: String },
 }
 
-pub async fn telegram_get_messages(
+pub fn telegram_get_messages(
     token: &str,
     offset: Option<i64>,
 ) -> Result<TelegramResponse, TelegramError> {
@@ -73,7 +78,7 @@ pub async fn telegram_get_messages(
         Ok(val) => Ok(val),
         Err(e) => Err(TelegramError::HttpError { msg: e.to_string() }),
     }?;
-    
+
     info!(response = resp, "got JSON response from telegram");
 
     let tresp = serde_json::from_str(&resp);
