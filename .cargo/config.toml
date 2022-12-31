@@ -1,3 +1,0 @@
-[env]
-TELEGRAM_TOKEN = "xy32"
-RUST_LOG = "warn,marvin=trace"
