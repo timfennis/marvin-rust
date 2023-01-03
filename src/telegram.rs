@@ -19,7 +19,7 @@ pub enum TelegramRequest {
     SendMessage {
         chat_id: u64,
         text: String,
-    }
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -34,13 +34,13 @@ pub struct Update {
     pub message: Message,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Message {
     pub text: String,
     pub chat: Chat,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Chat {
     pub id: u64,
     pub first_name: String,

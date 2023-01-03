@@ -1,6 +1,6 @@
 use crate::telegram::TelegramRequest;
 
-use tracing::{debug};
+use tracing::debug;
 
 use super::{GetUpdatesResponse, SendMessageResponse, TelegramError};
 
@@ -9,7 +9,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub async fn send_messages(&self, chat_id: u64, text: &str) -> Result<SendMessageResponse, TelegramError> {
+    pub async fn send_messages(
+        &self,
+        chat_id: u64,
+        text: &str,
+    ) -> Result<SendMessageResponse, TelegramError> {
         let resp = send_telegram_request(
             &self.token,
             &TelegramRequest::SendMessage {
@@ -73,9 +77,10 @@ async fn send_telegram_request(
             limit: _,
             timeout: _,
         } => ("getUpdates", Some(serde_json::to_string(request).unwrap())),
-        TelegramRequest::SendMessage { chat_id: _, text: _ } => {
-            ("sendMessage", Some(serde_json::to_string(request).unwrap()))
-        }
+        TelegramRequest::SendMessage {
+            chat_id: _,
+            text: _,
+        } => ("sendMessage", Some(serde_json::to_string(request).unwrap())),
     };
 
     let url = format!("https://api.telegram.org/bot{token}/{method}");
