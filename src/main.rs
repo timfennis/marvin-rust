@@ -1,5 +1,7 @@
+use std::collections::HashSet;
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::broadcast::{self, Sender, Receiver};
 use tracing::{debug, info, warn, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -19,6 +21,11 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
+
+    let db = Arc::new(Mutex::new(HashSet::new()));
+    let db2 = db.clone();
+    let db3 = db.clone();
+
     let telegram_token = env::var("TELEGRAM_TOKEN")
         .expect("You need to specify a TELEGRAM_TOKEN environment variable");
 
@@ -30,14 +37,31 @@ async fn main() {
     let client3 = client.clone();
 
     let (inbox_tx, mut inbox_rx) = broadcast::channel(16);
+    let mut inbox_rx2 = inbox_tx.subscribe();
+
     let (outbox_tx, mut outbox_rx) = broadcast::channel(16);
 
-    tokio::spawn(async move {
-        telegram_message_receiver(client2, inbox_tx).await;
-    });
+    {
+        let client = client.clone();
+        tokio::spawn(async move {
+            telegram_message_receiver(client, inbox_tx).await;
+        });
+    }
 
     tokio::spawn(async move {
         telegram_message_sender(client3, &mut outbox_rx).await;
+    });
+
+    tokio::spawn(async move {
+        address_book(&mut inbox_rx2, db2).await;
+    });
+
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            let contacts = db3.lock().unwrap();
+            debug!(len = contacts.len(), "current contacts");
+        }
     });
 
     // Echo service
@@ -49,6 +73,19 @@ async fn main() {
             Err(_) => {
                 warn!("error sending message to outbox_tx");
             },
+        }
+    }
+}
+
+async fn address_book(inbox_rx: &mut Receiver<Message>, address_book: Arc<Mutex<HashSet<u64>>>) {
+    loop {
+        match inbox_rx.recv().await {
+            Ok(message) => {
+                address_book.lock().unwrap().insert(message.chat.id);
+            },
+            Err(_) => {
+                warn!("error reading message from inbox");
+            }
         }
     }
 }
