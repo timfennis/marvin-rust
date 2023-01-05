@@ -15,6 +15,32 @@ use telegram::{Message, TelegramError};
 mod calendar;
 mod telegram;
 
+struct ApplicationConfig {
+    telegram_token: String,
+    calendar_url: String,
+    default_users: HashSet<u64>,
+}
+
+fn get_application_config() -> ApplicationConfig {
+    let telegram_token = env::var("TELEGRAM_TOKEN").expect("kapot");
+    // Let's get some calendar information
+    let calendar_url =
+        env::var("GARBAGE_URL").expect("You need to specify a GARBAGE_URL environment variable");
+
+    // Get default users from environment
+    let default_users = env::var("DEFAULT_USERS").map_or(HashSet::new(), |x| {
+        x.split(',')
+            .map(|x| x.parse::<u64>().unwrap())
+            .collect::<HashSet<u64>>()
+    });
+
+    ApplicationConfig {
+        telegram_token: telegram_token,
+        calendar_url: calendar_url,
+        default_users: default_users,
+    }
+}
+
 #[tokio::main]
 async fn main() {
     // Set up tracing/logging
@@ -25,32 +51,29 @@ async fn main() {
 
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let default_panic = std::panic::take_hook();
-
     // if a single task panics during execution just abort the entire program
+    let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         default_panic(info);
         std::process::exit(1);
     }));
 
-    // Let's get some calendar information
-    let calendar_url =
-        env::var("GARBAGE_URL").expect("You need to specify a GARBAGE_URL environment variable");
+    let config = get_application_config();
 
-    let events = fetch_calendar_info(&calendar_url)
+    // Fetch events
+    let events = fetch_calendar_info(&config.calendar_url)
         .await
         .unwrap_or_else(|_| panic!("failed to fetch calendar information"));
 
-    // Setting up telegram tasks
-    let db = Arc::new(Mutex::new(HashSet::new()));
+    // Setup address book
+    let db = Arc::new(Mutex::new(config.default_users));
 
-    let telegram_token = env::var("TELEGRAM_TOKEN")
-        .expect("You need to specify a TELEGRAM_TOKEN environment variable");
-
+    // Setup telegram client
     let client = Arc::new(Client {
-        token: telegram_token,
+        token: config.telegram_token,
     });
 
+    // Initialize communication channels for messages
     let (inbox_tx, mut inbox_rx) = broadcast::channel(16);
     let (outbox_tx, mut outbox_rx) = broadcast::channel(16);
 
@@ -59,10 +82,12 @@ async fn main() {
         let mut inbox_rx = inbox_tx.subscribe();
         let db = db.clone();
         tokio::spawn(async move {
-            address_book(&mut inbox_rx, db).await.unwrap_or_else(|_| {
-                warn!("unable to read from inbox_rx");
-                panic!();
-            });
+            address_book_keeper(&mut inbox_rx, db)
+                .await
+                .unwrap_or_else(|_| {
+                    warn!("unable to read from inbox_rx");
+                    panic!();
+                });
         });
     }
 
@@ -87,12 +112,12 @@ async fn main() {
                         "sleeping for half the duration until the notification"
                     );
                     tokio::time::sleep(Duration::from_secs(delay)).await;
+                }
 
-                    for contact in db.lock().unwrap().iter() {
-                        outbox_tx
-                            .send((*contact, "notification !!".to_owned()))
-                            .expect("error sending notification");
-                    }
+                for contact in db.lock().unwrap().iter() {
+                    outbox_tx
+                        .send((*contact, "notification !!".to_owned()))
+                        .expect("error sending notification");
                 }
             });
         }
@@ -131,6 +156,15 @@ async fn main() {
         });
     }
 
+    // Say hello to default contacts
+    {
+        for contact in db.lock().unwrap().iter() {
+            outbox_tx
+                .send((*contact, "hallo ik ben wakker".to_owned()))
+                .unwrap();
+        }
+    }
+
     // Echo service
     loop {
         let message = inbox_rx.recv().await.unwrap_or_else(|_| {
@@ -147,7 +181,8 @@ async fn main() {
     }
 }
 
-async fn address_book(
+/// This task listens for incomming messages and notes the chat_id in the address book
+async fn address_book_keeper(
     inbox_rx: &mut Receiver<Message>,
     address_book: Arc<Mutex<HashSet<u64>>>,
 ) -> Result<(), RecvError> {
